@@ -7,15 +7,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java JDK Subsystem
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
       - name: Create Failsafe Specifications
         run: |
-          # 1. Manually write a perfectly pre-configured specification layer profile
           cat << 'EOF' > buildozer.spec
           [app]
           title = Aether Wake Relay
@@ -36,7 +29,7 @@ jobs:
           EOF
 
       - name: Build Android APK Package Bundle
-        uses: Artemonim/buildozer-action@v1
+        uses: subzeroix/buildozer-action@v1
         with:
           command: buildozer -v android debug
           repository_root: .
