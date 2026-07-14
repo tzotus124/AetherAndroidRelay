@@ -7,34 +7,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Java JDK Subsystem
+        uses: actions/setup-java@v4
         with:
-          python-version: '3.11'
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Install Buildozer dependencies
+      - name: Create Failsafe Specifications
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libssl-dev libgdbm-dev libreadline-dev libffi-dev libsqlite3-dev tk-dev libgomp1
-          pip install --upgrade pip
-          pip install buildozer cython
-
-      - name: Initialize Buildozer Specifications
-        run: buildozer init
-
-      - name: Inject Flask and Disable Root Warning Checks
-        run: |
-          # 1. Force the spec file to pull down Flask module dependencies
-          sed -i 's/requirements = python3,kivy/requirements = python3,kivy,flask/g' buildozer.spec
+          # 1. Manually write a perfectly pre-configured specification layer profile
+          cat << 'EOF' > buildozer.spec
+          [app]
+          title = Aether Wake Relay
+          package.name = aetherrelayapp
+          package.domain = org.aether
+          source.dir = .
+          source.include_exts = py,png,jpg,kv,atlas
+          version = 0.1
+          requirements = python3,kivy,flask
+          orientation = portrait
+          fullscreen = 1
+          android.archs = arm64-v8a
+          android.allow_backup = True
           
-          # 2. Tell Buildozer to ignore root execution alerts inside the GitHub environment automatically
-          sed -i 's/#log_level = 2/log_level = 2/g' buildozer.spec
+          [buildozer]
+          log_level = 2
+          warn_on_root = 0
+          EOF
 
       - name: Build Android APK Package Bundle
-        run: |
-          # Force the compiler execution tool past the manual terminal confirm prompt 
-          yes | buildozer -v android debug
-        continue-on-error: false
+        uses: Artemonim/buildozer-action@v1
+        with:
+          command: buildozer -v android debug
+          repository_root: .
 
       - name: Upload Finished APK Asset Archive
         uses: actions/upload-artifact@v4
