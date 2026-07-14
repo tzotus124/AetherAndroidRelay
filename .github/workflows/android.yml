@@ -1,0 +1,36 @@
+name: Build Android APK
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Buildozer dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libssl-dev libgdbm-dev libreadline-dev libffi-dev libsqlite3-dev tk-dev libgomp1
+          pip install --upgrade pip
+          pip install buildozer cython
+
+      - name: Initialize Buildozer Specifications
+        run: buildozer init
+
+      - name: Inject Flask Dependency into Configuration file
+        run: |
+          sed -i 's/requirements = python3,kivy/requirements = python3,kivy,flask/g' buildozer.spec
+
+      - name: Build Android APK Package Bundle
+        run: buildozer -v android debug
+
+      - name: Upload Finished APK Asset Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherRelay_Android_App
+          path: bin/*.apk
