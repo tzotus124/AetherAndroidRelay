@@ -42,7 +42,7 @@ fun loadClients(c: Context): List<Client> = runCatching {
     val p = prefs(c)
     val a = org.json.JSONArray(p.getString("clients", "[]"))
     val list = (0 until a.length()).map { val o = a.getJSONObject(it)
-        Client(o.getString("secret"), o.optString("name"), o.optString("ip"), o.optLong("first"), o.optLong("last"), o.optInt("wakes"), o.optString("role", "pc").ifEmpty { "pc" }, o.optString("token"), o.optLong("made")) }
+        Client(o.getString("secret"), o.optString("name"), o.optString("ip"), o.optLong("first"), o.optLong("last"), o.optInt("wakes"), o.optString("role", "pc").ifEmpty { "pc" }, o.optString("token"), o.optLong("made")) }.toMutableList()
     val old = p.getStringSet("secrets", null)
     if (old != null) { old.filter { s -> list.none { it.secret == s } }.forEach { list += Client(it, "", "", 0, 0, 0) }
         p.edit().remove("secrets").putString("clients", clientsJson(list)).apply() }
