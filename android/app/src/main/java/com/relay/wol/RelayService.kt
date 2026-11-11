@@ -42,7 +42,7 @@ fun loadClients(c: Context): List<Client> = runCatching {
     val p = prefs(c)
     val a = org.json.JSONArray(p.getString("clients", "[]"))
     val list = (0 until a.length()).map { val o = a.getJSONObject(it)
-        Client(o.getString("secret"), o.optString("name"), o.optString("ip"), o.optLong("first"), o.optLong("last"), o.optInt("wakes"), o.optString("role", "pc").ifEmpty { "pc" }, o.optString("token"), o.optLong("made")) }.toMutableList()
+        Client(o.getString("secret"), o.optString("name"), o.optString("ip"), o.optLong("first"), o.optLong("last"), o.optInt("wakes"), o.optString("role", "pc").ifEmpty { "pc" }, o.optString("token"), o.optLong("made")) }
     // migrate tokens made by older versions (unbound)
     val old = p.getStringSet("secrets", null)
     if (old != null) { old.filter { s -> list.none { it.secret == s } }.forEach { list += Client(it, "", "", 0, 0, 0) }
@@ -130,7 +130,7 @@ fun applyPin(c: Context, d: String): String {
     }
     val before = loadPins(c).map { it.hash to it.exp }.toSet()
     savePins(c, list)
-    if (before != list.map { it.hash to it.exp }.toSet()) addLog(c, "🔒 ${list.size} access PIN(s) synced from WoL Host" + (if (list.any { it.user.isNotEmpty() }) ": " + list.joinToString(", ") { it.user.ifEmpty { "?" } } else ""))
+    if (before != list.map { it.hash to it.exp }.toSet()) addLog(c, "🔒 ${list.size} access PIN(s) synced from WoL Host" + (if (list.any { it.user.isNotEmpty() }) ": " + list.joinToString(", ") { it.user } else ""))
     return "OK"
 }
 private val PIN_FAILS = mutableListOf<Long>()
@@ -239,6 +239,7 @@ class RelayService : Service() {
             val sig = j.optString("sig")
             val devName = j.optString("name").trim().take(40)
             // Each token belongs to ONE device: the first PC that uses it is bound to its Tailscale IP; any other device using it is refused.
+            // If the same token is reused on a different device, the previous device is removed and the new one replaces it.
             var verdict = "INVALID"; var clRole = "pc"
             synchronized(CLIENT_LOCK) {
                 val list = loadClients(this@RelayService).toMutableList()
@@ -246,8 +247,14 @@ class RelayService : Service() {
                 if (i >= 0) {
                     val cl = list[i]; val now = System.currentTimeMillis()
                     val wantRole = if (roleReq == "host") "host" else "pc"
-                    if (cl.ip.isNotEmpty() && cl.ip != src) verdict = "BOUND"
-                    else if (cl.ip.isNotEmpty() && cl.role != wantRole) verdict = if (cl.role == "host") "ISHOST" else "ISCLIENT"      // a token that joined as a client can never be used by a host, and the other way round
+                    val previousOwners = list.filter { it.secret == cl.secret && it.ip != src }
+                    val sameTokenMoved = cl.ip.isNotEmpty() && cl.ip != src
+                    if (sameTokenMoved && previousOwners.isNotEmpty()) {
+                        list.removeAll(previousOwners)
+                        addLog(this@RelayService, "↻ ${devName.ifEmpty { src }} ($src) reused an existing token; previous connection removed")
+                    }
+                    if (cl.ip.isNotEmpty() && cl.ip != src && !sameTokenMoved) verdict = "BOUND"
+                    else if (cl.ip.isNotEmpty() && cl.role != wantRole) verdict = if (cl.role == "host") "ISHOST" else "ISCLIENT"
                     else { verdict = "OK"
                         // A device keeps ONE token per kind: when it joins with a new token, its previous token(s) of the same kind are deleted.
                         val old = if (cl.ip.isEmpty()) list.filter { it.ip == src && it.role == wantRole && it.secret != cl.secret } else emptyList()
@@ -280,7 +287,7 @@ class RelayService : Service() {
                 addLog(this@RelayService, "＋ Host $nm ($src) saved with MAC ${macs.joinToString(", ")}")
                 return reply("OK")
             }
-            if (act == "hosts") {                                    // the saved hosts (Tailscale IP + MAC) go to every linked client without a PIN, so adding a token never asks for one; waking and scanning still need it
+            if (act == "hosts") {                                    // the saved hosts (Tailscale IP + MAC) go to every linked client without a PIN, so adding a token never asks for one; waking [...]
                 val txt = hostsForClients(this@RelayService)
                 return reply("HOSTS|$txt")                           // not logged: clients ask for this every 30 s
             }
@@ -298,7 +305,7 @@ class RelayService : Service() {
                 val devs = discoverLan(); saveLan(this@RelayService, devs)
                 addLog(this@RelayService, "🔎 Found ${devs.size} physical device(s) for $src$viaPin"); return reply("MACS|" + devsJson(devs))
             }
-            val m = mac.ifEmpty { arpLookup(ip) } ?: run { addLog(this@RelayService, "✖ Wake ${ip.ifEmpty { "?" }} from $src failed: MAC unknown"); return reply("NEED_MAC (IP not in ARP cache, use MAC)") }
+            val m = mac.ifEmpty { arpLookup(ip) } ?: run { addLog(this@RelayService, "✖ Wake ${ip.ifEmpty { "?" }} from $src failed: MAC unknown"); return reply("NEED_MAC (IP not in ARP cache, update WoL Host)") }
             sendMagic(m, ip.ifEmpty { null })
             editClients(this@RelayService) { l -> val k = l.indexOfFirst { it.ip == src }; if (k >= 0) l[k] = l[k].copy(wakes = l[k].wakes + 1) }
             addLog(this@RelayService, "✔ Wake $m${if (ip.isNotEmpty()) " ($ip)" else ""} from $src$viaPin"); reply("OK")
